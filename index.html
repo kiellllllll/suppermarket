@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<title>Supermarket Simulator FINAL</title>
+
+<style>
+body { margin:0; font-family:Arial; background:#111; color:white; }
+
+#topbar {
+    height:50px;
+    background:#1f1f1f;
+    display:flex;
+    align-items:center;
+    padding:10px;
+    gap:20px;
+}
+
+#panel {
+    position:absolute;
+    top:60px;
+    left:10px;
+    background:#222;
+    padding:10px;
+    border-radius:10px;
+    width:220px;
+}
+
+button {
+    width:100%;
+    margin-top:5px;
+    padding:6px;
+    background:#27ae60;
+    border:none;
+    color:white;
+    cursor:pointer;
+}
+
+canvas {
+    display:block;
+    margin:auto;
+    background:#ccc;
+}
+</style>
+</head>
+
+<body>
+
+<div id="topbar">
+💰 <span id="money"></span>
+📅 Hari: <span id="day"></span>
+⭐ Rep: <span id="rep"></span>
+</div>
+
+<div id="panel">
+📦 Gudang: <span id="storage"></span><br>
+<button onclick="restock()">Restock</button>
+<button onclick="nextDay()">Next Day</button>
+</div>
+
+<canvas id="game" width="1000" height="550"></canvas>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+// ===== LOAD IMAGE =====
+const playerImg = new Image();
+playerImg.src = "https://i.imgur.com/6X12F5p.png";
+
+const shelfImg = new Image();
+shelfImg.src = "https://i.imgur.com/8Qf6Z6B.png";
+
+const floorImg = new Image();
+floorImg.src = "https://i.imgur.com/3e5p9Qk.png";
+
+// ===== GAME DATA =====
+let game = JSON.parse(localStorage.getItem("finalSim")) || {
+    money: 500,
+    day: 1,
+    storage: 20,
+    reputation: 100,
+    shelves: [
+        {x:250,y:120,stock:5,price:10},
+        {x:450,y:120,stock:5,price:12},
+        {x:650,y:120,stock:5,price:15}
+    ],
+    customers: [],
+    queue: []
+};
+
+function save(){
+    localStorage.setItem("finalSim", JSON.stringify(game));
+}
+
+// ===== CUSTOMER =====
+class Customer {
+    constructor(){
+        this.x = Math.random()*1000;
+        this.y = 0;
+        this.speed = 1.2;
+        this.frame = 0;
+        this.budget = 10 + Math.random()*40;
+        this.cart = [];
+        this.target = randShelf();
+        this.state = "shop";
+        this.wait = 0;
+    }
+
+    move(tx,ty){
+        let dx=tx-this.x, dy=ty-this.y;
+        let dist=Math.sqrt(dx*dx+dy*dy);
+        if(dist>2){
+            this.x += dx/dist*this.speed;
+            this.y += dy/dist*this.speed;
+        } else return true;
+        return false;
+    }
+
+    update(){
+        this.frame++;
+
+        if(this.state==="shop"){
+            if(this.move(this.target.x,this.target.y)){
+                if(this.target.stock>0 && this.budget>=this.target.price){
+                    this.target.stock--;
+                    this.cart.push(this.target);
+                    this.budget -= this.target.price;
+                }
+                if(Math.random()>0.5){
+                    this.target = randShelf();
+                } else {
+                    this.state="queue";
+                    game.queue.push(this);
+                }
+            }
+        }
+
+        else if(this.state==="queue"){
+            let i = game.queue.indexOf(this);
+            let ty = 400 - i*25;
+            if(this.move(500,ty)){
+                this.state="wait";
+            }
+        }
+
+        else if(this.state==="wait"){
+            this.wait++;
+            if(this.wait>150){
+                this.cart.forEach(p=> game.money += p.price);
+                this.state="leave";
+            }
+        }
+
+        else if(this.state==="leave"){
+            this.y += this.speed;
+        }
+    }
+
+    draw(){
+        // animasi sprite (4 frame horizontal)
+        let frameX = Math.floor(this.frame/10)%4;
+        ctx.drawImage(playerImg, frameX*32, 0, 32, 32, this.x-16, this.y-16, 32, 32);
+    }
+}
+
+function randShelf(){
+    return game.shelves[Math.floor(Math.random()*game.shelves.length)];
+}
+
+// ===== SYSTEM =====
+function spawn(){
+    if(game.customers.length<12){
+        game.customers.push(new Customer());
+    }
+}
+setInterval(spawn,1500);
+
+function restock(){
+    if(game.money>=50){
+        game.money-=50;
+        game.storage+=10;
+    }
+}
+
+function nextDay(){
+    game.day++;
+    game.money -= 40;
+    game.reputation -= Math.floor(Math.random()*3);
+}
+
+// klik rak
+canvas.addEventListener("click", e=>{
+    let rect = canvas.getBoundingClientRect();
+    let mx = e.clientX - rect.left;
+    let my = e.clientY - rect.top;
+
+    game.shelves.forEach(s=>{
+        if(mx>s.x && mx<s.x+64 && my>s.y && my<s.y+64){
+            if(game.storage>0){
+                s.stock++;
+                game.storage--;
+            }
+        }
+    });
+});
+
+// ===== DRAW =====
+function draw(){
+    ctx.clearRect(0,0,1000,550);
+
+    // floor
+    ctx.drawImage(floorImg,0,0,1000,550);
+
+    // shelves
+    game.shelves.forEach(s=>{
+        ctx.drawImage(shelfImg,s.x,s.y,64,64);
+        ctx.fillStyle="black";
+        ctx.fillText("Rp"+s.price,s.x,s.y-5);
+        ctx.fillText("Stok:"+s.stock,s.x,s.y+80);
+    });
+
+    // kasir
+    ctx.fillStyle="#2ecc71";
+    ctx.fillRect(460,380,100,50);
+    ctx.fillStyle="white";
+    ctx.fillText("KASIR",480,410);
+
+    // queue
+    game.queue.forEach((c,i)=>{
+        ctx.fillStyle="yellow";
+        ctx.fillText(i+1,520,400-i*25);
+    });
+
+    // customers
+    game.customers.forEach((c,i)=>{
+        c.update();
+        c.draw();
+
+        if(c.y>600){
+            game.customers.splice(i,1);
+            game.queue = game.queue.filter(q=>q!==c);
+        }
+    });
+
+    // UI
+    document.getElementById("money").innerText = game.money;
+    document.getElementById("day").innerText = game.day;
+    document.getElementById("storage").innerText = game.storage;
+    document.getElementById("rep").innerText = game.reputation;
+
+    save();
+    requestAnimationFrame(draw);
+}
+
+draw();
+</script>
+
+</body>
+</html>w
